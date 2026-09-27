@@ -1,0 +1,41 @@
+name: Python Smoke Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Compile all Python files
+        run: python -m compileall -q main.py aveevisualizer
+      - name: Import modules and audit themes
+        run: |
+          python - <<'PY'
+          import aveevisualizer.audio
+          import aveevisualizer.cli
+          import aveevisualizer.media
+          import aveevisualizer.performance
+          import aveevisualizer.render
+          import aveevisualizer.theme
+          from aveevisualizer.theme import discover_themes
+          from aveevisualizer.render import SceneRenderer
+
+          themes = discover_themes("Themes")
+          assert themes, "No valid themes found"
+          for theme in themes:
+              report = theme.report(SceneRenderer.SUPPORTED, SceneRenderer.SUPPORTED_MEASURES)
+              assert report["compositions"] > 0
+              assert report["elements"] > 0
+              print(theme.path, report)
+          print("SMOKE TEST OK")
+          PY
