@@ -1,4 +1,4 @@
-import math, random, subprocess, sys, time
+import math, random, subprocess, sys, time, colorsys
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter
 from .audio import AudioAnalysis
@@ -22,6 +22,19 @@ def vignette(w,h):
 def particle_tex(size=64):
     y,x=np.ogrid[-1:1:complex(size),-1:1:complex(size)]; a=np.clip(1-np.sqrt(x*x+y*y),0,1)**2; arr=np.full((size,size,4),255,np.uint8); arr[...,3]=(a*255).astype(np.uint8)
     return Image.fromarray(arr,'RGBA')
+def hsla(v,default=(1,1,1,1)):
+    try:
+        p=[float(x) for x in str(v).split()]; h,s,l,a=(p+[1,1,1,1])[:4]; r,g,b=colorsys.hls_to_rgb(h%1,l,max(0,min(1,s))); return (int(r*255),int(g*255),int(b*255),int(max(0,min(1,a))*255))
+    except:return default
+def int_rgba(v,default=(255,255,255,255)):
+    try:
+        n=int(v)&0xffffffff; return ((n>>16)&255,(n>>8)&255,n&255,(n>>24)&255 or 255)
+    except:return default
+def lerp_color(a,b,x): return tuple(int(a[i]+(b[i]-a[i])*max(0,min(1,x))) for i in range(4))
+def tint(im,c):
+    a=np.asarray(im,dtype=np.uint16).copy()
+    for i in range(4): a[...,i]=(a[...,i]*c[i]//255)
+    return Image.fromarray(a.astype(np.uint8),'RGBA')
 def blend(base,layer,mode='Alpha'):
     if mode in ('Add','AddAlpha','Screen'):
         a=np.asarray(base,dtype=np.uint16); b=np.asarray(layer,dtype=np.uint16); out=np.minimum(255,a+b*(b[...,3:4]/255)).astype(np.uint8); return Image.fromarray(out,'RGBA')
@@ -41,9 +54,25 @@ class SceneRenderer:
             strength=beat*A*(1 if what!='BeatCamShakeLess' else .5); speed=max(.1,B); return (math.sin(t*31*speed)*strength,math.cos(t*27*speed)*strength)
         if what in ('ConstantShakeMore','ConstantShake'): return (math.sin(t*20*max(.1,B))*A,math.cos(t*17*max(.1,B))*A)
         return (0,0)
+    def scalar_measure(self,e,key,beat,t):
+        what,A,B=self.t.measure(e,key)
+        if what=='Nothing': return 0.
+        if what=='Beat': return max(0,min(1,beat*max(A,B,1)))
+        if what in ('TotalTime','TotalTimeWhenPlaying'): return (t*max(A,B,.01))%1
+        if what=='TotalTimeBackward': return 1-((t*max(A,B,.01))%1)
+        if what=='TotalTimeAndBeat': return ((t*max(A,.01))+beat*B)%1
+        return max(0,min(1,self.measure(e,key,beat,t)[0]))
+    def element_color(self,e,beat,t,particle=False):
+        if particle:
+            c1=hsla(self.t.value(e.get('ColorFrom'),'0 0 1 1')); c2=hsla(self.t.value(e.get('ColorTo'),'0 0 1 1')); x=(math.sin(t*.7)+1)/2
+        else:
+            c1=hsla(self.t.value(e.get('Color'),'0 0 1 1')); c2=hsla(self.t.value(e.get('ColorTo'),self.t.value(e.get('Color'),'0 0 1 1'))); x=self.scalar_measure(e,'MeasureColorBlend',beat,t)
+        return lerp_color(c1,c2,x)
     def transform(self,layer,e,beat,t):
         px,py=f2(self.t,e,'position',(.5,.5)); sx,sy=f2(self.t,e,'scale',(1,1)); dx,dy=self.measure(e,'MeasurePos',beat,t); msx,msy=self.measure(e,'measureScale',beat,t); sx=max(.001,sx+msx); sy=max(.001,sy+msy)
         nw=max(1,int(self.w*sx)); nh=max(1,int(self.h*sy)); im=layer.resize((nw,nh),RESAMPLE) if (nw,nh)!=(self.w,self.h) else layer
+        rot=fv(self.t,e,'rotation',0); mr=self.measure(e,'measureRot',beat,t)[0]; angle=rot+mr*360
+        if abs(angle)>.001: im=im.rotate(-angle,RESAMPLE,expand=False)
         canvas=Image.new('RGBA',(self.w,self.h)); x=int((px+dx)*self.w-nw/2); y=int((py+dy)*self.h-nh/2); canvas.alpha_composite(im,(x,y)); return canvas
     def image_element(self,e,beat,t,stack):
         src=str(self.t.value(e.get('customImage'),'') or ''); tag=self.t.tag(e); ref=self.t.ref(e,'customImage')
@@ -55,21 +84,27 @@ class SceneRenderer:
         elif src=='internalres:black': im=Image.new('RGBA',(self.w,self.h),(0,0,0,255))
         elif src=='internalres:white': im=Image.new('RGBA',(self.w,self.h),(255,255,255,255))
         else: im=Image.new('RGBA',(self.w,self.h))
+        im=tint(im,self.element_color(e,beat,t))
+        opacity=max(0,min(4,fv(self.t,e,'opacityStrength',1)))
+        if opacity!=1:
+            im.putalpha(im.getchannel('A').point(lambda x:min(255,int(x*opacity))))
+        if bool(self.t.value(e.get('blurEnabled'),0)): im=im.filter(ImageFilter.GaussianBlur(max(0,fv(self.t,e,'blurRadius',1))))
         if str(self.t.value(e.get('Shape'),'None'))=='Circle':
             sx,sy=f2(self.t,e,'scale',(.3,.3)); r=int(min(self.w,self.h)*max(sx,sy)/2); mask=Image.new('L',(self.w,self.h)); ImageDraw.Draw(mask).ellipse((self.w//2-r,self.h//2-r,self.w//2+r,self.h//2+r),fill=255); im.putalpha(mask)
         return self.transform(im,e,beat,t)
     def bars(self,e,spec,beat,t):
         layer=Image.new('RGBA',(self.w,self.h)); d=ImageDraw.Draw(layer); sx,_=f2(self.t,e,'scale',(.31,.31)); r=min(self.w,self.h)*sx/2; height=fv(self.t,e,'heightScale',2.5); mx=fv(self.t,e,'maxHeightScale',4); delay=max(0,int(fv(self.t,e,'reactionDelay',0))); hist=self.history.get('spec',[spec]); src=hist[max(0,len(hist)-1-min(delay,len(hist)-1))]
-        n=min(len(src),200); cx,cy=self.w/2,self.h/2; lw=max(1,int(min(self.w,self.h)*.0018))
+        if bool(self.t.value(e.get('flipInput'),0)): src=src[::-1]
+        n=min(len(src),200); cx,cy=self.w/2,self.h/2; seg=e.get('Segment1',{}); mult=fv(self.t,seg,'barHeightMultiplier',.4); fixed=fv(self.t,seg,'fixedHeight',0); color=int_rgba(self.t.value(seg.get('colorFrom'),-1)); lw=max(1,int(min(self.w,self.h)*.0018))
         for j in range(n):
-            a=2*math.pi*j/n-math.pi/2; val=float(src[j]); L=min(self.w,self.h)*.012*min(mx,height*val); x1=cx+math.cos(a)*r; y1=cy+math.sin(a)*r; x2=cx+math.cos(a)*(r+L); y2=cy+math.sin(a)*(r+L); d.line((x1,y1,x2,y2),fill=(255,255,255,220),width=lw)
+            a=2*math.pi*j/n-math.pi/2; val=float(src[j]); L=min(self.w,self.h)*.03*(fixed+mult*min(mx,max(fv(self.t,e,'minHeightScale',0),height*val))); x1=cx+math.cos(a)*r; y1=cy+math.sin(a)*r; x2=cx+math.cos(a)*(r+L); y2=cy+math.sin(a)*(r+L); d.line((x1,y1,x2,y2),fill=color,width=lw)
         soft=fv(self.t,e,'softnessRadius',fv(self.t,e,'softness',0)); return layer.filter(ImageFilter.GaussianBlur(max(0,(soft-8)*.18))) if soft>8 else layer
     def particles_layer(self,e,beat,t):
         count=min(180,max(20,int(fv(self.t,e,'CountLimit',1000)/8))); speed=fv(self.t,e,'OverallSpeed',1)
         while len(self.particles)<count:self.particles.append([self.rng.random()*self.w,self.rng.random()*self.h,self.rng.uniform(-1,1),self.rng.uniform(-1,1)])
-        layer=Image.new('RGBA',(self.w,self.h)); scale=max(.2,fv(self.t,e,'particleScale',1)); sz=max(2,int(min(self.w,self.h)*.004*scale)); tex=self.pt.resize((sz,sz),RESAMPLE)
+        layer=Image.new('RGBA',(self.w,self.h)); scale=max(.2,fv(self.t,e,'particleScale',1)); sz=max(2,int(min(self.w,self.h)*.004*scale)); tex=self.pt.resize((sz,sz),RESAMPLE); pcolor=self.element_color(e,beat,t,True); tex=tint(tex,pcolor); measured=self.measure(e,'MeasureOverallSpeed',beat,t)[0]; speed=(fv(self.t,e,'Speed',60)/60.0)*(1+measured)
         for p in self.particles:
-            p[0]=(p[0]+p[2]*(.5+beat*2)*speed)%self.w; p[1]=(p[1]+p[3]*(.5+beat*2)*speed)%self.h; alpha=int(80+150*beat); q=tex.copy(); q.putalpha(q.getchannel('A').point(lambda x:x*alpha//255)); layer.alpha_composite(q,(int(p[0]-sz/2),int(p[1]-sz/2)))
+            p[0]=(p[0]+p[2]*speed)%self.w; p[1]=(p[1]+p[3]*speed)%self.h; alpha=int(80+150*beat); q=tex.copy(); q.putalpha(q.getchannel('A').point(lambda x:x*alpha//255)); layer.alpha_composite(q,(int(p[0]-sz/2),int(p[1]-sz/2)))
         return layer
     def composition(self,idx,beat,t,stack=None):
         stack=set() if stack is None else set(stack)
