@@ -1,87 +1,121 @@
-import math, subprocess, sys, time
+import math, random, subprocess, sys, time
 import numpy as np
-from PIL import Image, ImageDraw, ImageFilter, ImageEnhance
+from PIL import Image, ImageDraw, ImageFilter
 from .audio import AudioAnalysis
-
 RESAMPLE=Image.Resampling.LANCZOS
 
 def cover(img,w,h):
-    img=img.convert('RGB'); s=max(w/img.width,h/img.height)
-    nw,nh=round(img.width*s),round(img.height*s)
-    img=img.resize((nw,nh),RESAMPLE); x=(nw-w)//2; y=(nh-h)//2
-    return img.crop((x,y,x+w,y+h))
+    img=img.convert('RGBA'); s=max(w/img.width,h/img.height); nw,nh=round(img.width*s),round(img.height*s); img=img.resize((nw,nh),RESAMPLE)
+    return img.crop(((nw-w)//2,(nh-h)//2,(nw-w)//2+w,(nh-h)//2+h))
+def fit(img,w,h):
+    img=img.convert('RGBA'); s=min(w/img.width,h/img.height); return img.resize((max(1,round(img.width*s)),max(1,round(img.height*s))),RESAMPLE)
+def fv(theme,e,k,d=0):
+    try:return float(theme.value(e.get(k),d))
+    except:return float(d)
+def f2(theme,e,k,d=(0,0)):
+    v=str(theme.value(e.get(k),f'{d[0]} {d[1]}')).split()
+    try:return float(v[0]),float(v[1])
+    except:return d
+def vignette(w,h):
+    y,x=np.ogrid[-1:1:complex(h),-1:1:complex(w)]; r=np.sqrt(x*x+y*y); a=np.clip((r-.35)/.75,0,1); arr=np.zeros((h,w,4),np.uint8); arr[...,3]=(a*205).astype(np.uint8)
+    return Image.fromarray(arr,'RGBA')
+def particle_tex(size=64):
+    y,x=np.ogrid[-1:1:complex(size),-1:1:complex(size)]; a=np.clip(1-np.sqrt(x*x+y*y),0,1)**2; arr=np.full((size,size,4),255,np.uint8); arr[...,3]=(a*255).astype(np.uint8)
+    return Image.fromarray(arr,'RGBA')
+def blend(base,layer,mode='Alpha'):
+    if mode in ('Add','AddAlpha','Screen'):
+        a=np.asarray(base,dtype=np.uint16); b=np.asarray(layer,dtype=np.uint16); out=np.minimum(255,a+b*(b[...,3:4]/255)).astype(np.uint8); return Image.fromarray(out,'RGBA')
+    return Image.alpha_composite(base,layer)
 
-def circle_logo(img,size):
-    im=cover(img,size,size).convert('RGBA')
-    mask=Image.new('L',(size,size)); ImageDraw.Draw(mask).ellipse((0,0,size-1,size-1),fill=255)
-    im.putalpha(mask); return im
+class SceneRenderer:
+    SUPPORTED={'AudioProvider','Image','Bars','Particles','BlurEffect','MotionBlurEffect'}
+    def __init__(self,theme,bg_path,logo_path,w,h,fps,analysis):
+        self.t=theme; self.w=w; self.h=h; self.fps=fps; self.a=analysis; self.bg=Image.open(bg_path).convert('RGBA'); self.logo=Image.open(logo_path).convert('RGBA')
+        self.vig=vignette(w,h); self.pt=particle_tex(); self.history={}; self.rng=random.Random(7719); self.particles=[]
+    def measure(self,e,key,beat,t):
+        what,A,B=self.t.measure(e,key)
+        if what=='Beat': return (A*beat,B*beat)
+        if what=='TotalTime': return (A*t,B*t)
+        if what=='TotalTimeAndBeat': return (A*t+A*beat,B*t+B*beat)
+        if what in ('BeatRandomShake','BeatCamShakeMore','BeatCamShakeLess'):
+            strength=beat*A*(1 if what!='BeatCamShakeLess' else .5); speed=max(.1,B); return (math.sin(t*31*speed)*strength,math.cos(t*27*speed)*strength)
+        if what in ('ConstantShakeMore','ConstantShake'): return (math.sin(t*20*max(.1,B))*A,math.cos(t*17*max(.1,B))*A)
+        return (0,0)
+    def transform(self,layer,e,beat,t):
+        px,py=f2(self.t,e,'position',(.5,.5)); sx,sy=f2(self.t,e,'scale',(1,1)); dx,dy=self.measure(e,'MeasurePos',beat,t); msx,msy=self.measure(e,'measureScale',beat,t); sx=max(.001,sx+msx); sy=max(.001,sy+msy)
+        nw=max(1,int(self.w*sx)); nh=max(1,int(self.h*sy)); im=layer.resize((nw,nh),RESAMPLE) if (nw,nh)!=(self.w,self.h) else layer
+        canvas=Image.new('RGBA',(self.w,self.h)); x=int((px+dx)*self.w-nw/2); y=int((py+dy)*self.h-nh/2); canvas.alpha_composite(im,(x,y)); return canvas
+    def image_element(self,e,beat,t,stack):
+        src=str(self.t.value(e.get('customImage'),'') or ''); tag=self.t.tag(e); ref=self.t.ref(e,'customImage')
+        if tag.lower()=='background': im=cover(self.bg,self.w,self.h)
+        elif tag.lower()=='logo':
+            box=max(8,min(self.w,self.h)); im0=fit(self.logo,box,box); im=Image.new('RGBA',(self.w,self.h)); im.alpha_composite(im0,((self.w-im0.width)//2,(self.h-im0.height)//2))
+        elif ref is not None: im=self.composition(ref,beat,t,stack)
+        elif src=='internalres:vignette80': im=self.vig.copy()
+        elif src=='internalres:black': im=Image.new('RGBA',(self.w,self.h),(0,0,0,255))
+        elif src=='internalres:white': im=Image.new('RGBA',(self.w,self.h),(255,255,255,255))
+        else: im=Image.new('RGBA',(self.w,self.h))
+        if str(self.t.value(e.get('Shape'),'None'))=='Circle':
+            sx,sy=f2(self.t,e,'scale',(.3,.3)); r=int(min(self.w,self.h)*max(sx,sy)/2); mask=Image.new('L',(self.w,self.h)); ImageDraw.Draw(mask).ellipse((self.w//2-r,self.h//2-r,self.w//2+r,self.h//2+r),fill=255); im.putalpha(mask)
+        return self.transform(im,e,beat,t)
+    def bars(self,e,spec,beat,t):
+        layer=Image.new('RGBA',(self.w,self.h)); d=ImageDraw.Draw(layer); sx,_=f2(self.t,e,'scale',(.31,.31)); r=min(self.w,self.h)*sx/2; height=fv(self.t,e,'heightScale',2.5); mx=fv(self.t,e,'maxHeightScale',4); delay=max(0,int(fv(self.t,e,'reactionDelay',0))); hist=self.history.get('spec',[spec]); src=hist[max(0,len(hist)-1-min(delay,len(hist)-1))]
+        n=min(len(src),200); cx,cy=self.w/2,self.h/2; lw=max(1,int(min(self.w,self.h)*.0018))
+        for j in range(n):
+            a=2*math.pi*j/n-math.pi/2; val=float(src[j]); L=min(self.w,self.h)*.012*min(mx,height*val); x1=cx+math.cos(a)*r; y1=cy+math.sin(a)*r; x2=cx+math.cos(a)*(r+L); y2=cy+math.sin(a)*(r+L); d.line((x1,y1,x2,y2),fill=(255,255,255,220),width=lw)
+        soft=fv(self.t,e,'softnessRadius',fv(self.t,e,'softness',0)); return layer.filter(ImageFilter.GaussianBlur(max(0,(soft-8)*.18))) if soft>8 else layer
+    def particles_layer(self,e,beat,t):
+        count=min(180,max(20,int(fv(self.t,e,'CountLimit',1000)/8))); speed=fv(self.t,e,'OverallSpeed',1)
+        while len(self.particles)<count:self.particles.append([self.rng.random()*self.w,self.rng.random()*self.h,self.rng.uniform(-1,1),self.rng.uniform(-1,1)])
+        layer=Image.new('RGBA',(self.w,self.h)); scale=max(.2,fv(self.t,e,'particleScale',1)); sz=max(2,int(min(self.w,self.h)*.004*scale)); tex=self.pt.resize((sz,sz),RESAMPLE)
+        for p in self.particles:
+            p[0]=(p[0]+p[2]*(.5+beat*2)*speed)%self.w; p[1]=(p[1]+p[3]*(.5+beat*2)*speed)%self.h; alpha=int(80+150*beat); q=tex.copy(); q.putalpha(q.getchannel('A').point(lambda x:x*alpha//255)); layer.alpha_composite(q,(int(p[0]-sz/2),int(p[1]-sz/2)))
+        return layer
+    def composition(self,idx,beat,t,stack=None):
+        stack=set() if stack is None else set(stack)
+        if idx in stack:return Image.new('RGBA',(self.w,self.h))
+        stack.add(idx); comp=self.t.composition(idx); out=Image.new('RGBA',(self.w,self.h))
+        if not comp:return out
+        spec=self.history['spec'][-1]
+        for e in comp.get('elements',[]):
+            if not bool(self.t.value(e.get('visible'),1)):continue
+            typ=e.get('objType'); mode=str(self.t.value(e.get('blendMode'),'Alpha'))
+            if typ=='AudioProvider':continue
+            if typ=='Image':layer=self.image_element(e,beat,t,stack)
+            elif typ=='Bars':layer=self.bars(e,spec,beat,t)
+            elif typ=='Particles':layer=self.particles_layer(e,beat,t)
+            elif typ=='BlurEffect':
+                ref=self.t.ref(e,'sourceComposition'); layer=self.composition(ref,beat,t,stack) if ref is not None else out.copy(); rad=fv(self.t,e,'blurRadius',1)*fv(self.t,e,'blurMultiplier',1); layer=layer.filter(ImageFilter.GaussianBlur(max(0,rad)))
+            elif typ=='MotionBlurEffect':
+                ref=self.t.ref(e,'TargetImage'); layer=self.composition(ref,beat,t,stack) if ref is not None else out.copy(); parts=str(self.t.value(e.get('blurAmountMultiplier'),'Constant 1 1')).split()
+                try:amount=max(.01,float(parts[1]))
+                except:amount=1
+                copies=max(2,min(8,int(2+amount*8))); acc=Image.new('RGBA',(self.w,self.h)); dx,dy=self.measure(e,'MeasurePos',beat,t)
+                for k in range(copies):
+                    offx=int(dx*self.w*k/copies*.02); offy=int(dy*self.h*k/copies*.02); tmp=Image.new('RGBA',(self.w,self.h)); tmp.alpha_composite(layer,(offx,offy)); acc=blend(acc,tmp,'AddAlpha')
+                layer=acc
+            else:continue
+            out=blend(out,layer,mode)
+        return out
+    def frame(self,i,spec,beat,bass):
+        self.history.setdefault('spec',[]).append(spec); self.history['spec']=self.history['spec'][-16:]; return self.composition(0,beat,i/self.fps)
 
 def render_video(theme,audio_path,bg_path,logo_path,out_path,width=1920,height=1080,fps=30,crf=18,preset='medium',encoder='libx264',threads=0):
-    aset=theme.audio_settings(); vset=theme.visual_settings()
-    analysis=AudioAnalysis(audio_path,fps=fps,lower_hz=aset['lower_hz'],higher_hz=max(16000,aset['higher_hz']),bands=96)
-    bg=ImageEnhance.Contrast(cover(Image.open(bg_path),width,height)).enhance(1.05)
-    base_radius=int(min(width,height)*vset['circle_scale']/2)
-    logo_src=Image.open(logo_path)
-    total=max(1,math.ceil(analysis.duration*fps))
-    encopts=[]
-    if encoder=='libx264':
-        encopts=['-c:v','libx264','-preset',preset,'-crf',str(crf),'-threads',str(max(1,threads))]
-    elif encoder=='h264_nvenc':
-        encopts=['-c:v','h264_nvenc','-preset','p4','-cq',str(crf)]
-    elif encoder=='h264_qsv':
-        encopts=['-c:v','h264_qsv','-preset','veryfast','-global_quality',str(crf)]
-    elif encoder=='h264_amf':
-        encopts=['-c:v','h264_amf','-quality','speed','-qp_i',str(crf),'-qp_p',str(crf)]
-    elif encoder=='h264_videotoolbox':
-        encopts=['-c:v','h264_videotoolbox','-q:v','65']
-    else:
-        encopts=['-c:v','libx264','-preset','veryfast','-crf',str(crf)]
-    cmd=['ffmpeg','-y','-v','warning','-f','rawvideo','-pix_fmt','rgb24','-s',f'{width}x{height}','-r',str(fps),'-i','-','-i',str(audio_path),'-map','0:v:0','-map','1:a:0']+encopts+['-pix_fmt','yuv420p','-c:a','aac','-b:a','320k','-shortest',str(out_path)]
-    p=subprocess.Popen(cmd,stdin=subprocess.PIPE)
-    history=[]
-    started=time.perf_counter(); last_pct=-1
+    analysis=AudioAnalysis(audio_path,fps=fps,settings=theme.audio_settings()); scene=SceneRenderer(theme,bg_path,logo_path,width,height,fps,analysis); total=max(1,math.ceil(analysis.duration*fps))
+    enc=['-c:v','libx264','-preset',preset,'-crf',str(crf),'-threads',str(max(1,threads))]
+    if encoder=='h264_nvenc':enc=['-c:v','h264_nvenc','-preset','p4','-cq',str(crf)]
+    elif encoder=='h264_qsv':enc=['-c:v','h264_qsv','-preset','veryfast','-global_quality',str(crf)]
+    elif encoder=='h264_amf':enc=['-c:v','h264_amf','-quality','speed','-qp_i',str(crf),'-qp_p',str(crf)]
+    elif encoder=='h264_videotoolbox':enc=['-c:v','h264_videotoolbox','-q:v','65']
+    cmd=['ffmpeg','-y','-v','warning','-f','rawvideo','-pix_fmt','rgba','-s',f'{width}x{height}','-r',str(fps),'-i','-','-i',str(audio_path),'-map','0:v:0','-map','1:a:0']+enc+['-pix_fmt','yuv420p','-c:a','aac','-b:a','320k','-shortest',str(out_path)]
+    p=subprocess.Popen(cmd,stdin=subprocess.PIPE); started=time.perf_counter(); last=-1
     try:
         for i in range(total):
-            spec,beat,bass=analysis.frame(i)
-            history.append(spec.copy()); history=history[-12:]
-            pulse=1.0+0.055*beat+0.025*bass
-            shake=int(min(width,height)*0.006*beat)
-            sx=int(math.sin(i*2.13)*shake); sy=int(math.cos(i*1.71)*shake)
-            frame=bg.transform(bg.size,Image.AFFINE,(1,0,-sx,0,1,-sy)).convert('RGBA')
-            cx,cy=width//2,height//2
-            layers=vset['bar_layers'] or [{"scale":vset['circle_scale'],"height":2.5,"delay":0,"softness":8}]
-            for li,L in enumerate(layers[:4]):
-                delay=min(max(0,L['delay']),len(history)-1)
-                src=history[-1-delay]
-                r=int(min(width,height)*L['scale']/2*pulse)
-                overlay=Image.new('RGBA',(width,height),(0,0,0,0)); d=ImageDraw.Draw(overlay)
-                n=min(96,len(src)); step=2*math.pi/n
-                alpha=max(65,210-li*35); linew=max(2,int(min(width,height)*.0024))
-                for j in range(n):
-                    a=j*step-math.pi/2; val=float(src[j])
-                    length=min(width,height)*(0.018+0.085*val)*(L['height']/3.0)
-                    x1=cx+math.cos(a)*r; y1=cy+math.sin(a)*r
-                    x2=cx+math.cos(a)*(r+length); y2=cy+math.sin(a)*(r+length)
-                    d.line((x1,y1,x2,y2),fill=(255,255,255,alpha),width=linew)
-                if L['softness']>10:
-                    overlay=overlay.filter(ImageFilter.GaussianBlur((L['softness']-9)*.35))
-                frame=Image.alpha_composite(frame,overlay)
-            rr=int(base_radius*.92*pulse)
-            ImageDraw.Draw(frame).ellipse((cx-rr,cy-rr,cx+rr,cy+rr),fill=(0,0,0,205))
-            ls=max(16,int(base_radius*1.75*pulse)); logo=circle_logo(logo_src,ls)
-            frame.alpha_composite(logo,(cx-ls//2,cy-ls//2))
-            p.stdin.write(np.asarray(frame.convert('RGB'),dtype=np.uint8).tobytes())
-            pct=min(100,int(((i+1)*100)/total))
-            if pct != last_pct:
-                elapsed=max(time.perf_counter()-started,1e-6)
-                render_fps=(i+1)/elapsed
-                realtime=render_fps/fps
-                sys.stdout.write(f'\r  Render {pct:3d}% | {render_fps:5.1f} fps | {realtime:4.2f}x realtime')
-                sys.stdout.flush()
-                last_pct=pct
+            spec,beat,bass=analysis.frame(i); frame=scene.frame(i,spec,beat,bass); p.stdin.write(np.asarray(frame,dtype=np.uint8).tobytes()); pct=int((i+1)*100/total)
+            if pct!=last:
+                rf=(i+1)/max(time.perf_counter()-started,1e-6); sys.stdout.write(f'\r  Render {pct:3d}% | {rf:5.1f} fps | {rf/fps:4.2f}x realtime'); sys.stdout.flush(); last=pct
     finally:
-        if p.stdin: p.stdin.close()
-        rc=p.wait()
-    print()
-    if rc: raise RuntimeError(f'FFmpeg gagal dengan kode {rc}')
+        if p.stdin:p.stdin.close()
+        rc=p.wait(); print()
+    if rc:raise RuntimeError(f'FFmpeg gagal dengan kode {rc}')
     return out_path
