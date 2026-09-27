@@ -41,7 +41,7 @@ def blend(base,layer,mode='Alpha'):
     return Image.alpha_composite(base,layer)
 
 class SceneRenderer:
-    SUPPORTED={'AudioProvider','Image','Bars','Particles','BlurEffect','MotionBlurEffect'}
+    SUPPORTED={'AudioProvider','Image','Bars','Particles','BlurEffect','MotionBlurEffect'}\n    SUPPORTED_MEASURES={'Nothing','Beat','TotalTime','TotalTimeBackward','TotalTimeWhenPlaying','TotalTimeAndBeat','TrackPosition','BeatRandomShake','BeatCamShakeMore','BeatCamShakeLess','BeatCamShakeRotMore','BeatCamShakeRotLess','ConstantShakeMore','ConstantShakeLess','ConstantShakeRotMore','ConstantShakeRotLess','BeatTriggerAnim'}
     def __init__(self,theme,bg_path,logo_path,w,h,fps,analysis):
         self.t=theme; self.w=w; self.h=h; self.fps=fps; self.a=analysis; self.bg=Image.open(bg_path).convert('RGBA'); self.logo=Image.open(logo_path).convert('RGBA')
         self.vig=vignette(w,h); self.pt=particle_tex(); self.history={}; self.rng=random.Random(7719); self.particles=[]
@@ -50,9 +50,9 @@ class SceneRenderer:
         if what=='Beat': return (A*beat,B*beat)
         if what=='TotalTime': return (A*t,B*t)
         if what=='TotalTimeAndBeat': return (A*t+A*beat,B*t+B*beat)
-        if what in ('BeatRandomShake','BeatCamShakeMore','BeatCamShakeLess'):
-            strength=beat*A*(1 if what!='BeatCamShakeLess' else .5); speed=max(.1,B); return (math.sin(t*31*speed)*strength,math.cos(t*27*speed)*strength)
-        if what in ('ConstantShakeMore','ConstantShake'): return (math.sin(t*20*max(.1,B))*A,math.cos(t*17*max(.1,B))*A)
+        if what in ('BeatRandomShake','BeatCamShakeMore','BeatCamShakeLess','BeatCamShakeRotMore','BeatCamShakeRotLess'):
+            strength=beat*A*(.5 if what in ('BeatCamShakeLess','BeatCamShakeRotLess') else 1); speed=max(.1,B); return (math.sin(t*31*speed)*strength,math.cos(t*27*speed)*strength)
+        if what in ('ConstantShakeMore','ConstantShake','ConstantShakeLess','ConstantShakeRotMore','ConstantShakeRotLess'): return (math.sin(t*20*max(.1,B))*A,math.cos(t*17*max(.1,B))*A)
         return (0,0)
     def scalar_measure(self,e,key,beat,t):
         what,A,B=self.t.measure(e,key)
@@ -61,6 +61,8 @@ class SceneRenderer:
         if what in ('TotalTime','TotalTimeWhenPlaying'): return (t*max(A,B,.01))%1
         if what=='TotalTimeBackward': return 1-((t*max(A,B,.01))%1)
         if what=='TotalTimeAndBeat': return ((t*max(A,.01))+beat*B)%1
+        if what=='TrackPosition': return min(1,max(0,t/max(self.a.duration,1e-6)))
+        if what=='BeatTriggerAnim': return max(0,min(1,beat*max(A,B,1)))
         return max(0,min(1,self.measure(e,key,beat,t)[0]))
     def element_color(self,e,beat,t,particle=False):
         if particle:
@@ -100,8 +102,8 @@ class SceneRenderer:
             a=2*math.pi*j/n-math.pi/2; val=float(src[j]); L=min(self.w,self.h)*.03*(fixed+mult*min(mx,max(fv(self.t,e,'minHeightScale',0),height*val))); x1=cx+math.cos(a)*r; y1=cy+math.sin(a)*r; x2=cx+math.cos(a)*(r+L); y2=cy+math.sin(a)*(r+L); d.line((x1,y1,x2,y2),fill=color,width=lw)
         soft=fv(self.t,e,'softnessRadius',fv(self.t,e,'softness',0)); return layer.filter(ImageFilter.GaussianBlur(max(0,(soft-8)*.18))) if soft>8 else layer
     def particles_layer(self,e,beat,t):
-        count=min(180,max(20,int(fv(self.t,e,'CountLimit',1000)/8))); speed=fv(self.t,e,'OverallSpeed',1)
-        while len(self.particles)<count:self.particles.append([self.rng.random()*self.w,self.rng.random()*self.h,self.rng.uniform(-1,1),self.rng.uniform(-1,1)])
+        count=min(1000,max(1,int(fv(self.t,e,'CountLimit',1000)))); spawn=max(.005,fv(self.t,e,'spawnTime',.05)); desired=min(count,max(1,int(t/spawn)+1)); speed=fv(self.t,e,'OverallSpeed',1)
+        while len(self.particles)<desired:self.particles.append([self.rng.random()*self.w,self.rng.random()*self.h,self.rng.uniform(-1,1),self.rng.uniform(-1,1)])
         layer=Image.new('RGBA',(self.w,self.h)); scale=max(.2,fv(self.t,e,'particleScale',1)); sz=max(2,int(min(self.w,self.h)*.004*scale)); tex=self.pt.resize((sz,sz),RESAMPLE); pcolor=self.element_color(e,beat,t,True); tex=tint(tex,pcolor); measured=self.measure(e,'MeasureOverallSpeed',beat,t)[0]; speed=(fv(self.t,e,'Speed',60)/60.0)*(1+measured)
         for p in self.particles:
             p[0]=(p[0]+p[2]*speed)%self.w; p[1]=(p[1]+p[3]*speed)%self.h; alpha=int(80+150*beat); q=tex.copy(); q.putalpha(q.getchannel('A').point(lambda x:x*alpha//255)); layer.alpha_composite(q,(int(p[0]-sz/2),int(p[1]-sz/2)))
