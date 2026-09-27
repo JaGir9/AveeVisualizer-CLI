@@ -49,8 +49,12 @@ class SceneRenderer:
     def measure(self,e,key,beat,t):
         what,A,B=self.t.measure(e,key)
         if what=='Beat': return (A*beat,B*beat)
-        if what=='TotalTime': return (A*t,B*t)
+        if what in ('TotalTime','TotalTimeWhenPlaying'): return (A*t,B*t)
+        if what=='TotalTimeBackward': return (-A*t,-B*t)
         if what=='TotalTimeAndBeat': return (A*t+A*beat,B*t+B*beat)
+        if what=='TrackPosition':
+            p=min(1,max(0,t/max(self.a.duration,1e-6))); return (A*p,B*p)
+        if what=='BeatTriggerAnim': return (A*beat,B*beat)
         if what in ('BeatRandomShake','BeatCamShakeMore','BeatCamShakeLess','BeatCamShakeRotMore','BeatCamShakeRotLess'):
             strength=beat*A*(.5 if what in ('BeatCamShakeLess','BeatCamShakeRotLess') else 1); speed=max(.1,B); return (math.sin(t*31*speed)*strength,math.cos(t*27*speed)*strength)
         if what in ('ConstantShakeMore','ConstantShake','ConstantShakeLess','ConstantShakeRotMore','ConstantShakeRotLess'): return (math.sin(t*20*max(.1,B))*A,math.cos(t*17*max(.1,B))*A)
