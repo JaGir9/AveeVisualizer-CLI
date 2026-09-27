@@ -55,9 +55,11 @@ def choose_quality(args):
         except (ValueError,EOFError): pass
         print('Pilihan tidak valid.')
 def interactive(args):
-    theme=choose_theme(); inv=theme.inventory(); unsupported=theme.unsupported(SceneRenderer.SUPPORTED)
+    theme=choose_theme(); report=theme.report(SceneRenderer.SUPPORTED,SceneRenderer.SUPPORTED_MEASURES); inv=report['types']
+    print(f"Theme audit: {report['compositions']} compositions | {report['elements']} elements")
     print('Theme elements:',', '.join(f'{k}={v}' for k,v in inv.items()))
-    if unsupported: print('PERINGATAN objType belum didukung:',', '.join(unsupported))
+    if report['unsupported_types']: print('PERINGATAN objType belum didukung:',', '.join(report['unsupported_types']))
+    if report['unsupported_measures']: print('PERINGATAN measure belum didukung:',', '.join(report['unsupported_measures']))
     music,bgs,logos=scan_all(); ensure(music,'Music'); ensure(bgs,'BackGround'); ensure(logos,'Logo')
     print('\n=========================================\n        AveeVisualizer-CLI\n========================================='); print(f'Music: {len(music)} | BackGround: {len(bgs)} | Logo: {len(logos)}'); print('\n[1] Manual\n[2] Otomatis / Berurutan')
     mode=input('\nPilih mode: ').strip()
@@ -72,6 +74,25 @@ def interactive(args):
             do_render(theme,m,b,l,args); state.advance('music',len(music)); state.advance('background',len(bgs)); state.advance('logo',len(logos)); state.save()
 def main():
     ap=argparse.ArgumentParser(prog='AveeVisualizer-CLI'); ap.add_argument('--width',type=int,default=1920); ap.add_argument('--height',type=int,default=1080); ap.add_argument('--fps',type=int,default=30); ap.add_argument('--crf',type=int,default=18); ap.add_argument('--preset',default='medium',choices=['ultrafast','superfast','veryfast','faster','fast','medium','slow','slower','veryslow']); ap.add_argument('--reset-state',action='store_true'); ap.add_argument('--check-themes',action='store_true',help='Audit semua theme tanpa render'); args=ap.parse_args(); require_ffmpeg(); p=detect_profile(); args.encoder=p['encoder']; args.threads=p['cores']; args.preset=p['preset'] if args.preset=='medium' else args.preset; print('\nAuto Performance:',describe(p))
-    if args.reset_state: (ROOT/'.state.json').unlink(missing_ok=True); print('State berhasil di-reset.'); return
+    if args.reset_state:
+        (ROOT/'.state.json').unlink(missing_ok=True)
+        print('State berhasil di-reset.')
+        return
+    if args.check_themes:
+        themes=discover_themes(ROOT/'Themes')
+        if not themes:
+            raise SystemExit('ERROR: Tidak ada theme JSON valid.')
+        for theme in themes:
+            report=theme.report(SceneRenderer.SUPPORTED,SceneRenderer.SUPPORTED_MEASURES)
+            print(f"\n[{theme.path.parent.name}] {report['compositions']} compositions | {report['elements']} elements")
+            print('  Types    :', ', '.join(f"{k}={v}" for k,v in report['types'].items()))
+            print('  Measures :', ', '.join(f"{k}={v}" for k,v in report['measures'].items()))
+            ok=not report['unsupported_types'] and not report['unsupported_measures']
+            print('  Status   :', 'OK' if ok else 'PERLU IMPLEMENTASI TAMBAHAN')
+            if report['unsupported_types']:
+                print('  Unsupported types:', ', '.join(report['unsupported_types']))
+            if report['unsupported_measures']:
+                print('  Unsupported measures:', ', '.join(report['unsupported_measures']))
+        return
     interactive(args)
 if __name__=='__main__': main()
