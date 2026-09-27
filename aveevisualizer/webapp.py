@@ -84,6 +84,12 @@ def api_upload(kind):
 def api_cancel():
     if snapshot().get('state')=='rendering': cancel_event.set(); log('Permintaan cancel diterima.')
     return jsonify({'ok':True})
+@app.get('/media/<kind>/<path:name>')
+def media(kind,name):
+    mapping={'music':'Music','background':'BackGround','logo':'Logo'}
+    if kind not in mapping: return jsonify({'error':'Media tidak valid'}),404
+    return send_from_directory(ROOT/mapping[kind],secure_filename(name))
+
 @app.get('/output/<path:name>')
 def output(name): return send_from_directory(ROOT/'Output',name,as_attachment=True)
 
