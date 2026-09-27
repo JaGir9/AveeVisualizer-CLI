@@ -34,6 +34,28 @@ def do_render(theme,music,bg,logo,args):
     render_video(theme,music,bg,logo,out,args.width,args.height,args.fps,args.crf,args.preset)
     print('SELESAI:',out)
 
+def choose_quality(args):
+    presets = [
+        ("480p", 854, 480),
+        ("720p HD", 1280, 720),
+        ("1080p Full HD", 1920, 1080),
+        ("2K / 1440p QHD", 2560, 1440),
+        ("4K / 2160p UHD", 3840, 2160),
+    ]
+    print("\nPilih kualitas hasil video:")
+    for i, (name, w, h) in enumerate(presets, 1):
+        print(f"  [{i}] {name:<17} {w}x{h}")
+    while True:
+        try:
+            n = int(input("Pilih kualitas: ").strip())
+            if 1 <= n <= len(presets):
+                name, args.width, args.height = presets[n-1]
+                print(f"Kualitas: {name} ({args.width}x{args.height})")
+                return
+        except (ValueError, EOFError):
+            pass
+        print("Pilihan tidak valid.")
+
 def interactive(args):
     theme=Theme(ROOT/'scene.json'); music,bgs,logos=scan_all(ROOT)
     ensure(music,'Music'); ensure(bgs,'BackGround'); ensure(logos,'Logo')
@@ -41,6 +63,8 @@ def interactive(args):
     print(f'Music: {len(music)} | BackGround: {len(bgs)} | Logo: {len(logos)}')
     print('\n[1] Manual\n[2] Otomatis / Berurutan')
     mode=input('\nPilih mode: ').strip()
+    if mode not in ('1','2'): raise SystemExit('Pilihan tidak valid.')
+    choose_quality(args)
     if mode=='1':
         m=choose('Pilih Music',music); b=bgs[0] if len(bgs)==1 else choose('Pilih BackGround',bgs); l=logos[0] if len(logos)==1 else choose('Pilih Logo',logos)
         do_render(theme,m,b,l,args)
@@ -53,7 +77,7 @@ def interactive(args):
             l=logos[0] if len(logos)==1 else logos[state.get('logo')%len(logos)]
             do_render(theme,m,b,l,args)
             state.advance('music',len(music)); state.advance('background',len(bgs)); state.advance('logo',len(logos)); state.save()
-    else: raise SystemExit('Pilihan tidak valid.')
+
 
 def main():
     ap=argparse.ArgumentParser(prog='AveeVisualizer-CLI',description='Independent audio-reactive CLI renderer inspired by an Avee visualizer scene.')
