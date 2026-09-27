@@ -1,0 +1,13 @@
+[project]
+name = "aveevisualizer-cli"
+version = "0.1.0"
+description = "Independent audio-reactive CLI renderer using an Avee-style scene as a visual blueprint."
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.26", "Pillow>=10.0"]
+
+[project.scripts]
+aveevisualizer = "aveevisualizer.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
