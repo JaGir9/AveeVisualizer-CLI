@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AveeVisualizer Local</title><style>
+:root{color-scheme:dark;font-family:Inter,system-ui,sans-serif}body{margin:0;background:#0b0d12;color:#eef2ff}.wrap{max-width:1100px;margin:auto;padding:28px}.card{background:#131722;border:1px solid #252b3a;border-radius:16px;padding:20px;margin-bottom:18px}h1{margin:0 0 6px}.sub{color:#9ba7bd}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}label{display:block;font-size:13px;color:#aeb8ca;margin-bottom:6px}select,button{width:100%;padding:12px;border-radius:10px;border:1px solid #30384b;background:#0e121b;color:#fff}button{cursor:pointer;font-weight:700}.primary{background:#e9eefb;color:#111827}.danger{background:#2a1518}.bar{height:16px;background:#242b39;border-radius:99px;overflow:hidden}.fill{height:100%;width:0;background:#e9eefb;transition:.2s}.stats{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-top:12px}.stat{background:#0e121b;padding:10px;border-radius:10px}.stat b{display:block;font-size:18px}pre{height:180px;overflow:auto;background:#090b10;padding:12px;border-radius:10px;white-space:pre-wrap}.actions{display:grid;grid-template-columns:2fr 1fr;gap:10px;margin-top:14px}a{color:#fff}@media(max-width:700px){.grid,.stats{grid-template-columns:1fr}.actions{grid-template-columns:1fr}}</style></head>
+<body><div class="wrap"><div class="card"><h1>AveeVisualizer Local Web</h1><div class="sub" id="perf">Mendeteksi performance...</div></div>
+<div class="card"><div class="grid">
+<div><label>Theme</label><select id="theme"></select></div><div><label>Music</label><select id="music"></select></div>
+<div><label>Background</label><select id="background"></select></div><div><label>Logo</label><select id="logo"></select></div>
+<div><label>Orientation</label><select id="orientation"><option value="landscape">Landscape</option><option value="portrait">Portrait</option></select></div>
+<div><label>Quality</label><select id="quality"></select></div></div>
+<div class="actions"><button class="primary" id="render">RENDER VIDEO — 30 FPS</button><button class="danger" id="cancel">CANCEL</button></div></div>
+<div class="card"><h3>Render Progress</h3><div class="bar"><div class="fill" id="fill"></div></div><div id="message" class="sub" style="margin-top:8px">Siap</div>
+<div class="stats"><div class="stat">Progress<b id="pct">0%</b></div><div class="stat">Frame<b id="frame">0 / 0</b></div><div class="stat">Speed<b id="speed">0 fps</b></div><div class="stat">Realtime<b id="rt">0x</b></div><div class="stat">ETA<b id="eta">--:--</b></div></div>
+<div id="download" style="margin-top:12px"></div><pre id="logs">Menunggu render...</pre></div></div>
+<script>
+const $=id=>document.getElementById(id), fill=(id,items,val=x=>x)=>{$(id).innerHTML=items.map(x=>'<option value="'+val(x)+'">'+(x.name||x)+'</option>').join('')};
+async function load(){let d=await fetch('/api/files').then(r=>r.json());fill('theme',d.themes,x=>x.id);fill('music',d.music);fill('background',d.backgrounds);fill('logo',d.logos);fill('quality',d.qualities);$('perf').textContent=d.performance}
+function tm(s){if(!isFinite(s)||s<=0)return '--:--';let m=Math.floor(s/60),q=Math.floor(s%60);return m+':'+String(q).padStart(2,'0')}
+async function status(){let d=await fetch('/api/status').then(r=>r.json());$('fill').style.width=(d.percent||0)+'%';$('pct').textContent=(d.percent||0)+'%';$('frame').textContent=(d.frame||0)+' / '+(d.total_frames||0);$('speed').textContent=(d.render_fps||0).toFixed(1)+' fps';$('rt').textContent=(d.realtime||0).toFixed(2)+'x';$('eta').textContent=tm(d.eta);$('message').textContent=d.message||d.state;$('logs').textContent=(d.logs||[]).join('\n')||'Menunggu render...';if(d.state==='done')$('download').innerHTML='<a href="/output/'+encodeURIComponent(d.output)+'">Download '+d.output+'</a>';else if(d.state==='rendering')$('download').innerHTML=''}
+$('render').onclick=async()=>{let body={theme:$('theme').value,music:$('music').value,background:$('background').value,logo:$('logo').value,orientation:$('orientation').value,quality:$('quality').value};let r=await fetch('/api/render',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});let d=await r.json();if(!r.ok)alert(d.error||'Gagal memulai render')};
+$('cancel').onclick=()=>fetch('/api/cancel',{method:'POST'});load();status();setInterval(status,700);
+</script></body></html>
