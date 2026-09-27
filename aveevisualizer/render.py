@@ -1,4 +1,4 @@
-import math, random, subprocess, sys, time, colorsys
+import math, random, subprocess, sys, time, colorsys, threading
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter
 from .audio import AudioAnalysis
@@ -45,7 +45,7 @@ class SceneRenderer:
     SUPPORTED_MEASURES={'Nothing','Beat','TotalTime','TotalTimeBackward','TotalTimeWhenPlaying','TotalTimeAndBeat','TrackPosition','BeatRandomShake','BeatCamShakeMore','BeatCamShakeLess','BeatCamShakeRotMore','BeatCamShakeRotLess','ConstantShakeMore','ConstantShakeLess','ConstantShakeRotMore','ConstantShakeRotLess','BeatTriggerAnim'}
     def __init__(self,theme,bg_path,logo_path,w,h,fps,analysis):
         self.t=theme; self.w=w; self.h=h; self.fps=fps; self.a=analysis; self.bg=Image.open(bg_path).convert('RGBA'); self.logo=Image.open(logo_path).convert('RGBA')
-        self.vig=vignette(w,h); self.pt=particle_tex(); self.history={}; self.rng=random.Random(7719); self.particles=[]
+        self.vig=vignette(w,h); self.pt=particle_tex(); self.history={}; self.rng=random.Random(7719); self.particles=[]; self._frame_cache={}
     def measure(self,e,key,beat,t):
         what,A,B=self.t.measure(e,key)
         if what=='Beat': return (A*beat,B*beat)
@@ -114,6 +114,7 @@ class SceneRenderer:
             p[0]=(p[0]+p[2]*speed)%self.w; p[1]=(p[1]+p[3]*speed)%self.h; alpha=int(80+150*beat); q=tex.copy(); q.putalpha(q.getchannel('A').point(lambda x:x*alpha//255)); layer.alpha_composite(q,(int(p[0]-sz/2),int(p[1]-sz/2)))
         return layer
     def composition(self,idx,beat,t,stack=None):
+        if idx in self._frame_cache: return self._frame_cache[idx].copy()
         stack=set() if stack is None else set(stack)
         if idx in stack:return Image.new('RGBA',(self.w,self.h))
         stack.add(idx); comp=self.t.composition(idx); out=Image.new('RGBA',(self.w,self.h))
@@ -127,7 +128,11 @@ class SceneRenderer:
             elif typ=='Bars':layer=self.bars(e,spec,beat,t)
             elif typ=='Particles':layer=self.particles_layer(e,beat,t)
             elif typ=='BlurEffect':
-                ref=self.t.ref(e,'sourceComposition'); layer=self.composition(ref,beat,t,stack) if ref is not None else out.copy(); rad=fv(self.t,e,'blurRadius',1)*fv(self.t,e,'blurMultiplier',1); layer=layer.filter(ImageFilter.GaussianBlur(max(0,rad)))
+                ref=self.t.ref(e,'sourceComposition')
+                if ref is None:
+                    try: ref=int(self.t.value(e.get('sourceCompositionIndex')))
+                    except (TypeError,ValueError): ref=None
+                layer=self.composition(ref,beat,t,stack) if ref is not None else out.copy(); rad=fv(self.t,e,'blurRadius',1)*fv(self.t,e,'blurMultiplier',1); layer=layer.filter(ImageFilter.GaussianBlur(max(0,rad)))
             elif typ=='MotionBlurEffect':
                 ref=self.t.ref(e,'TargetImage'); layer=self.composition(ref,beat,t,stack) if ref is not None else out.copy(); parts=str(self.t.value(e.get('blurAmountMultiplier'),'Constant 1 1')).split()
                 try:amount=max(.01,float(parts[1]))
@@ -138,11 +143,14 @@ class SceneRenderer:
                 layer=acc
             else:continue
             out=blend(out,layer,mode)
+        self._frame_cache[idx]=out.copy()
         return out
     def frame(self,i,spec,beat,bass):
-        self.history.setdefault('spec',[]).append(spec); self.history['spec']=self.history['spec'][-16:]; return self.composition(0,beat,i/self.fps)
+        self._frame_cache.clear(); self.history.setdefault('spec',[]).append(spec); self.history['spec']=self.history['spec'][-16:]; return self.composition(0,beat,i/self.fps)
 
-def render_video(theme,audio_path,bg_path,logo_path,out_path,width=1920,height=1080,fps=30,crf=18,preset='medium',encoder='libx264',threads=0):
+class RenderCancelled(RuntimeError): pass
+
+def render_video(theme,audio_path,bg_path,logo_path,out_path,width=1920,height=1080,fps=30,crf=18,preset='medium',encoder='libx264',threads=0,progress_cb=None,cancel_event=None):
     analysis=AudioAnalysis(audio_path,fps=fps,settings=theme.audio_settings()); scene=SceneRenderer(theme,bg_path,logo_path,width,height,fps,analysis); total=max(1,math.ceil(analysis.duration*fps))
     enc=['-c:v','libx264','-preset',preset,'-crf',str(crf),'-threads',str(max(1,threads))]
     if encoder=='h264_nvenc':enc=['-c:v','h264_nvenc','-preset','p4','-cq',str(crf)]
@@ -153,9 +161,11 @@ def render_video(theme,audio_path,bg_path,logo_path,out_path,width=1920,height=1
     p=subprocess.Popen(cmd,stdin=subprocess.PIPE); started=time.perf_counter(); last=-1
     try:
         for i in range(total):
+            if cancel_event is not None and cancel_event.is_set(): raise RenderCancelled('Render dibatalkan.')
             spec,beat,bass=analysis.frame(i); frame=scene.frame(i,spec,beat,bass); p.stdin.write(np.asarray(frame,dtype=np.uint8).tobytes()); pct=int((i+1)*100/total)
             if pct!=last:
-                rf=(i+1)/max(time.perf_counter()-started,1e-6); sys.stdout.write(f'\r  Render {pct:3d}% | {rf:5.1f} fps | {rf/fps:4.2f}x realtime'); sys.stdout.flush(); last=pct
+                elapsed=max(time.perf_counter()-started,1e-6); rf=(i+1)/elapsed; eta=max(0,(total-i-1)/max(rf,1e-6)); sys.stdout.write(f'\r  Render {pct:3d}% | {rf:5.1f} fps | {rf/fps:4.2f}x realtime'); sys.stdout.flush(); last=pct
+                if progress_cb: progress_cb({'percent':pct,'frame':i+1,'total_frames':total,'render_fps':rf,'realtime':rf/fps,'elapsed':elapsed,'eta':eta})
     finally:
         if p.stdin:p.stdin.close()
         rc=p.wait(); print()
