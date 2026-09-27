@@ -8,7 +8,9 @@ def natural_key(p):
     return [int(x) if x.isdigit() else x.lower() for x in re.split(r'(\d+)', p.name)]
 
 def scan(folder, exts):
-    return sorted([p for p in Path(folder).iterdir() if p.is_file() and p.suffix.lower() in exts], key=natural_key)
+    folder=Path(folder)
+    folder.mkdir(parents=True,exist_ok=True)
+    return sorted([p for p in folder.iterdir() if p.is_file() and p.suffix.lower() in exts],key=natural_key)
 
 class RotationState:
     def __init__(self, path):
