@@ -83,6 +83,27 @@ Quality presets:
 
 The renderer now caches completed compositions within each frame so repeated composition references do not redraw the same composition unnecessarily. BlurEffect also supports Avee-style `sourceCompositionIndex` references used by the bundled theme. These optimizations do not intentionally remove particles, bars, blur, motion blur, beat/shake reactions, transforms, colors, blending, or other supported theme behavior.
 
+## Browser Studio
+
+The local Web mode is now a browser studio rather than only a render form. It is inspired by the workflow of modern browser visualizer editors while remaining an independent implementation.
+
+Features include:
+
+- create, open and save named local projects in `Projects/`
+- select any discovered Avee-compatible JSON theme
+- full composition/element tree for the selected `scene.json`
+- property inspector generated from Avee JSON metadata (`v`, `t`, `tag`, `hint`)
+- direct full JSON editor for advanced editing
+- per-project edited `scene.json` copy, leaving the original theme intact
+- upload/select Music, Background and Logo from the browser
+- audio playback and lightweight editor preview
+- Landscape/Portrait and 480p, 720p, 1080p, 1440p, 2160p export
+- fixed 30 FPS final render
+- hardware encoder detection, progress, frame count, render FPS, realtime speed, ETA, logs, cancel and MP4 download
+- final export uses the same Python renderer as CLI, including supported Bars, Particles, BlurEffect, MotionBlurEffect, beat/shake measures, composition references, transforms, colors and blend settings
+
+The browser preview is intentionally lightweight and is not a pixel-identical substitute for final export. Final MP4 rendering is authoritative and uses the project JSON through the Python scene engine.
+
 ## Performance
 
 At startup the CLI detects logical CPU resources and tests hardware H.264 encoders exposed by FFmpeg: NVIDIA NVENC, Intel Quick Sync, AMD AMF and Apple VideoToolbox, with libx264 fallback.
