@@ -24,9 +24,9 @@ The included Default scene is the full original theme (9 compositions / 21 eleme
 
 The generic loader keeps the full JSON and inventories every element. The renderer currently implements all object types present in the bundled Default theme: `AudioProvider`, `Image`, `Bars`, `Particles`, `BlurEffect`, and `MotionBlurEffect`.
 
-It resolves `composition:*` references recursively and implements beat/time measures used by the theme, including Beat, TotalTime, TotalTimeAndBeat, BeatRandomShake, BeatCamShakeMore/Less and ConstantShake. It also provides procedural equivalents for required internal resources such as vignette and blurred-circle particles.
+It resolves `composition:*` references recursively and implements beat/time measures used by the theme, including Beat, TotalTime, TotalTimeBackward, TotalTimeAndBeat, BeatRandomShake, BeatCamShakeMore/Less and ConstantShake. Theme values are evaluated at render time: Color/ColorTo and MeasureColorBlend, blend mode, opacity, position/scale/rotation and their measures, image blur, Bars height/delay/softness/segment colors, particle colors/speed/scale/count, BlurEffect and MotionBlurEffect parameters are read from the selected JSON rather than fixed to the bundled theme. It also provides procedural equivalents for required internal resources such as vignette and blurred-circle particles.
 
-If a future theme contains a new `objType`, the CLI prints an explicit unsupported-type warning instead of silently pretending it was rendered.
+If a future theme contains a new `objType`, the CLI prints an explicit unsupported-type warning instead of silently pretending it was rendered. This makes theme changes data-driven while keeping unsupported Avee-specific behavior visible.
 
 Background images tagged `BackGround` are overridden from `BackGround/`. Images tagged `Logo` are overridden from `Logo/`. Other scene elements/effects continue to come from the selected JSON.
 
