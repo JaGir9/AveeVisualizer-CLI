@@ -1,4 +1,4 @@
-import math, subprocess
+import math, subprocess, sys, time
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter, ImageEnhance
 from .audio import AudioAnalysis
@@ -16,16 +16,30 @@ def circle_logo(img,size):
     mask=Image.new('L',(size,size)); ImageDraw.Draw(mask).ellipse((0,0,size-1,size-1),fill=255)
     im.putalpha(mask); return im
 
-def render_video(theme,audio_path,bg_path,logo_path,out_path,width=1920,height=1080,fps=30,crf=18,preset='medium'):
+def render_video(theme,audio_path,bg_path,logo_path,out_path,width=1920,height=1080,fps=30,crf=18,preset='medium',encoder='libx264',threads=0):
     aset=theme.audio_settings(); vset=theme.visual_settings()
     analysis=AudioAnalysis(audio_path,fps=fps,lower_hz=aset['lower_hz'],higher_hz=max(16000,aset['higher_hz']),bands=96)
     bg=ImageEnhance.Contrast(cover(Image.open(bg_path),width,height)).enhance(1.05)
     base_radius=int(min(width,height)*vset['circle_scale']/2)
     logo_src=Image.open(logo_path)
     total=max(1,math.ceil(analysis.duration*fps))
-    cmd=['ffmpeg','-y','-v','warning','-f','rawvideo','-pix_fmt','rgb24','-s',f'{width}x{height}','-r',str(fps),'-i','-','-i',str(audio_path),'-map','0:v:0','-map','1:a:0','-c:v','libx264','-preset',preset,'-crf',str(crf),'-pix_fmt','yuv420p','-c:a','aac','-b:a','320k','-shortest',str(out_path)]
+    encopts=[]
+    if encoder=='libx264':
+        encopts=['-c:v','libx264','-preset',preset,'-crf',str(crf),'-threads',str(max(1,threads))]
+    elif encoder=='h264_nvenc':
+        encopts=['-c:v','h264_nvenc','-preset','p4','-cq',str(crf)]
+    elif encoder=='h264_qsv':
+        encopts=['-c:v','h264_qsv','-preset','veryfast','-global_quality',str(crf)]
+    elif encoder=='h264_amf':
+        encopts=['-c:v','h264_amf','-quality','speed','-qp_i',str(crf),'-qp_p',str(crf)]
+    elif encoder=='h264_videotoolbox':
+        encopts=['-c:v','h264_videotoolbox','-q:v','65']
+    else:
+        encopts=['-c:v','libx264','-preset','veryfast','-crf',str(crf)]
+    cmd=['ffmpeg','-y','-v','warning','-f','rawvideo','-pix_fmt','rgb24','-s',f'{width}x{height}','-r',str(fps),'-i','-','-i',str(audio_path),'-map','0:v:0','-map','1:a:0']+encopts+['-pix_fmt','yuv420p','-c:a','aac','-b:a','320k','-shortest',str(out_path)]
     p=subprocess.Popen(cmd,stdin=subprocess.PIPE)
     history=[]
+    started=time.perf_counter(); last_pct=-1
     try:
         for i in range(total):
             spec,beat,bass=analysis.frame(i)
@@ -57,9 +71,17 @@ def render_video(theme,audio_path,bg_path,logo_path,out_path,width=1920,height=1
             ls=max(16,int(base_radius*1.75*pulse)); logo=circle_logo(logo_src,ls)
             frame.alpha_composite(logo,(cx-ls//2,cy-ls//2))
             p.stdin.write(np.asarray(frame.convert('RGB'),dtype=np.uint8).tobytes())
-            if i%max(1,fps*5)==0: print(f'  Render {i/total*100:5.1f}% ({i}/{total})',flush=True)
+            pct=min(100,int(((i+1)*100)/total))
+            if pct != last_pct:
+                elapsed=max(time.perf_counter()-started,1e-6)
+                render_fps=(i+1)/elapsed
+                realtime=render_fps/fps
+                sys.stdout.write(f'\r  Render {pct:3d}% | {render_fps:5.1f} fps | {realtime:4.2f}x realtime')
+                sys.stdout.flush()
+                last_pct=pct
     finally:
         if p.stdin: p.stdin.close()
         rc=p.wait()
+    print()
     if rc: raise RuntimeError(f'FFmpeg gagal dengan kode {rc}')
     return out_path
