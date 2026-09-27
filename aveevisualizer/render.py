@@ -41,7 +41,8 @@ def blend(base,layer,mode='Alpha'):
     return Image.alpha_composite(base,layer)
 
 class SceneRenderer:
-    SUPPORTED={'AudioProvider','Image','Bars','Particles','BlurEffect','MotionBlurEffect'}\n    SUPPORTED_MEASURES={'Nothing','Beat','TotalTime','TotalTimeBackward','TotalTimeWhenPlaying','TotalTimeAndBeat','TrackPosition','BeatRandomShake','BeatCamShakeMore','BeatCamShakeLess','BeatCamShakeRotMore','BeatCamShakeRotLess','ConstantShakeMore','ConstantShakeLess','ConstantShakeRotMore','ConstantShakeRotLess','BeatTriggerAnim'}
+    SUPPORTED={'AudioProvider','Image','Bars','Particles','BlurEffect','MotionBlurEffect'}
+    SUPPORTED_MEASURES={'Nothing','Beat','TotalTime','TotalTimeBackward','TotalTimeWhenPlaying','TotalTimeAndBeat','TrackPosition','BeatRandomShake','BeatCamShakeMore','BeatCamShakeLess','BeatCamShakeRotMore','BeatCamShakeRotLess','ConstantShakeMore','ConstantShakeLess','ConstantShakeRotMore','ConstantShakeRotLess','BeatTriggerAnim'}
     def __init__(self,theme,bg_path,logo_path,w,h,fps,analysis):
         self.t=theme; self.w=w; self.h=h; self.fps=fps; self.a=analysis; self.bg=Image.open(bg_path).convert('RGBA'); self.logo=Image.open(logo_path).convert('RGBA')
         self.vig=vignette(w,h); self.pt=particle_tex(); self.history={}; self.rng=random.Random(7719); self.particles=[]
