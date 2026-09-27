@@ -1,42 +1,42 @@
-import json
+import json, re
 from pathlib import Path
+from collections import Counter
 
 class Theme:
-    def __init__(self, path: Path):
-        self.path = Path(path)
-        self.data = json.loads(self.path.read_text(encoding="utf-8"))
-        self.elements = [e for c in self.data.get("compositions", []) for e in c.get("elements", [])]
-        self.audio = next((e for e in self.elements if e.get("objType") == "AudioProvider"), {})
-        self.background = next((e for e in self.elements if self._v(e, "tag") == "BackGround"), {})
-        self.logo = next((e for e in self.elements if self._v(e, "tag") == "Logo"), {})
-        self.circle = next((e for e in self.elements if e.get("objType") == "Image" and self._v(e, "Shape") == "Circle"), {})
-        self.bars = [e for e in self.elements if e.get("objType") == "Bars"]
-
+    def __init__(self,path):
+        self.path=Path(path); self.data=json.loads(self.path.read_text(encoding='utf8'))
+        self.compositions=self.data.get('compositions',[])
     @staticmethod
-    def _v(e, key, default=None):
-        x = e.get(key, {})
-        return x.get("v", default) if isinstance(x, dict) else default
-
+    def value(x,default=None):
+        return x.get('v',default) if isinstance(x,dict) else (default if x is None else x)
+    def elements(self,obj_type=None):
+        out=[]
+        for ci,c in enumerate(self.compositions):
+            for e in c.get('elements',[]):
+                if obj_type is None or e.get('objType')==obj_type: out.append((ci,e))
+        return out
+    def composition(self,index): return self.compositions[index] if 0<=index<len(self.compositions) else None
+    def element_id(self,e): return int(self.value(e.get('_id'),-1))
+    def tag(self,e): return str(self.value(e.get('tag'),''))
+    def measure(self,node,name):
+        m=node.get(name,{}) if isinstance(node,dict) else {}
+        return str(self.value(m.get('measureWhat'),'Nothing')), float(self.value(m.get('A'),0) or 0), float(self.value(m.get('B'),0) or 0)
+    def ref(self,node,key):
+        v=str(self.value(node.get(key),'') or ''); m=re.fullmatch(r'composition:(\d+)',v)
+        return int(m.group(1)) if m else None
     def audio_settings(self):
-        return {
-            "fft_power": int(self._v(self.audio, "fftSize", 13)),
-            "sample_count": int(self._v(self.audio, "sampleOutCount", 200)),
-            "lower_hz": float(self._v(self.audio, "lowerHz", 45)),
-            "higher_hz": float(self._v(self.audio, "higherHz", 300)),
-            "smooth": float(self._v(self.audio, "smooth", 1.5)),
-            "beat_smooth": float(self._v(self.audio, "beatSmooth", .4)),
-        }
+        a=(self.elements('AudioProvider') or [(0,{})])[0][1]; g=lambda k,d:self.value(a.get(k),d)
+        defaults={'fftSize':13,'sampleOutCount':200,'lowerHz':45,'higherHz':300,'hzLinearFactor':1,'freqShift':0,'mirrorSamples':1,'repeatSamples':1,'starAndEndGap':0,'smooth':1.5,'preSmooth':1,'filterRadius':1,'filterStrength':.3,'beatSmooth':.4,'beatRangeBarFirst':0,'beatRangeBarLast':.2,'beatRangeValueLower':.7,'beatRangeValueHigher':35,'aWeight':.75,'outputMultiplier':1}
+        return {k:g(k,d) for k,d in defaults.items()}
+    def inventory(self): return Counter(e.get('objType','Unknown') for _,e in self.elements())
+    def unsupported(self,supported): return sorted(set(self.inventory())-set(supported))
 
-    def visual_settings(self):
-        scale = self._v(self.circle, "scale", "0.310000 0.310000")
-        try: circle_scale = float(str(scale).split()[0])
-        except Exception: circle_scale = .31
-        return {
-            "circle_scale": circle_scale,
-            "bar_layers": [{
-                "scale": float(str(self._v(b, "scale", ".31 .31")).split()[0]),
-                "height": float(self._v(b, "heightScale", 2.5)),
-                "delay": int(self._v(b, "reactionDelay", 0)),
-                "softness": int(self._v(b, "softness", 8)),
-            } for b in self.bars]
-        }
+def discover_themes(root):
+    root=Path(root); found=[]
+    if not root.exists(): return found
+    for p in sorted(root.rglob('*.json')):
+        try:
+            t=Theme(p)
+            if t.data.get('objType')=='Root' and t.compositions: found.append(t)
+        except Exception: pass
+    return found
