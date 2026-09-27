@@ -1,6 +1,6 @@
 # AveeVisualizer-CLI
 
-Theme-driven CLI audio visualizer. Theme JSON is treated as a scene graph; Music, BackGround and Logo are user-replaceable media.
+Theme-driven CLI + local Web UI audio visualizer. Theme JSON is treated as a scene graph; Music, BackGround and Logo are user-replaceable media.
 
 > Independent renderer, not an official Avee Player product. JSON structure and parameters are read directly. Avee internal engine/resources are reimplemented with compatible/equivalent behavior, so pixel-identical output with Avee itself is not guaranteed.
 
@@ -58,6 +58,30 @@ Quality:
     [3] 1080p Full HD
     [4] 2K / 1440p QHD
     [5] 4K / 2160p UHD
+
+## Local Web UI
+
+Windows:
+
+    run_web.bat
+
+Linux/macOS:
+
+    ./run_web.sh
+
+The launcher starts a local-only server at `http://127.0.0.1:8080` and opens the default browser automatically. The Web UI uses the same Python theme/render engine as CLI mode.
+
+Web controls include Theme, Music, Background, Logo, Landscape/Portrait, quality presets, fixed 30 FPS rendering, detected encoder information, live progress, current/total frame, render FPS, realtime multiplier, ETA, logs, cancel, and output download.
+
+Quality presets:
+
+    480p
+    720p HD
+    1080p Full HD
+    2K / 1440p QHD
+    4K / 2160p UHD
+
+The renderer now caches completed compositions within each frame so repeated composition references do not redraw the same composition unnecessarily. BlurEffect also supports Avee-style `sourceCompositionIndex` references used by the bundled theme. These optimizations do not intentionally remove particles, bars, blur, motion blur, beat/shake reactions, transforms, colors, blending, or other supported theme behavior.
 
 ## Performance
 
