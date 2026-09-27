@@ -1,0 +1,10 @@
+{"compositions":[{"elements":[
+{"v":"AudioProvider","objType":"AudioProvider","_name":"Audio Provider","fftSize":{"v":13},"sampleOutCount":{"v":200},"lowerHz":{"v":45},"higherHz":{"v":300},"smooth":{"v":1.5},"beatSmooth":{"v":0.4}},
+{"v":"Image","objType":"Image","tag":{"v":"BackGround"},"_name":"Image"},
+{"v":"Image","objType":"Image","tag":{"v":"Logo"},"_name":"Logo"},
+{"v":"Image","objType":"Image","Shape":{"v":"Circle"},"scale":{"v":"0.310000 0.310000"},"_name":"Circle"},
+{"v":"Bars","objType":"Bars","scale":{"v":"0.310000 0.310000"},"heightScale":{"v":2.5},"reactionDelay":{"v":0},"softness":{"v":8}},
+{"v":"Bars","objType":"Bars","scale":{"v":"0.312000 0.312000"},"heightScale":{"v":2.7},"reactionDelay":{"v":1},"softness":{"v":10}},
+{"v":"Bars","objType":"Bars","scale":{"v":"0.314000 0.314000"},"heightScale":{"v":2.9},"reactionDelay":{"v":2},"softness":{"v":12}},
+{"v":"Bars","objType":"Bars","scale":{"v":"0.315000 0.315000"},"heightScale":{"v":3.0},"reactionDelay":{"v":3},"softness":{"v":14}}
+]}]}
