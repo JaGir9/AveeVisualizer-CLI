@@ -55,7 +55,12 @@ Menu:
     [1] Manual
     [2] Otomatis / Berurutan
 
-After selecting a mode, choose output quality:
+After selecting a mode, choose orientation:
+
+    [1] Horizontal / Landscape
+    [2] Vertical / Portrait
+
+Then choose output quality:
 
     [1] 480p              854x480
     [2] 720p HD           1280x720
@@ -63,7 +68,15 @@ After selecting a mode, choose output quality:
     [4] 2K / 1440p QHD    2560x1440
     [5] 4K / 2160p UHD    3840x2160
 
-All presets use a 16:9 output canvas. Higher resolutions require substantially more rendering time, RAM, storage, and encoding resources.
+Horizontal uses 16:9 and Vertical uses 9:16. Higher resolutions require substantially more rendering time, RAM, storage, and encoding resources.
+
+## Automatic performance
+
+At startup the CLI detects logical CPU count and tests hardware H.264 encoders exposed by the installed FFmpeg build. It prefers NVIDIA NVENC, Intel Quick Sync, AMD AMF, or Apple VideoToolbox when available and functional; otherwise it falls back to multi-threaded libx264 with an automatically selected speed preset.
+
+The progress indicator stays on one terminal line and updates from 0-100%, also showing measured render FPS and actual speed relative to realtime. For example, 2.00x realtime means one minute of video is currently being produced in roughly 30 seconds. This is measured during the render rather than guessed from the device name.
+
+Note: hardware video encoding only accelerates the FFmpeg encoding stage. The current visual composition itself is still generated on the CPU with Pillow/NumPy, so very high resolutions such as 4K can remain CPU-heavy.
 
 Manual lets you select media yourself. If Background or Logo contains exactly one supported image, it is selected automatically.
 
