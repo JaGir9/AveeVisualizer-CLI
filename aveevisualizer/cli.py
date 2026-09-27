@@ -3,6 +3,7 @@ from pathlib import Path
 from .theme import Theme
 from .media import scan, IMAGE_EXT, AUDIO_EXT, RotationState
 from .render import render_video
+from .performance import detect_profile, describe
 
 ROOT=Path(__file__).resolve().parents[1]
 
@@ -31,8 +32,19 @@ def output_name(music): return ROOT/'Output'/f'{music.stem}_visualizer.mp4'
 def do_render(theme,music,bg,logo,args):
     out=output_name(music); out.parent.mkdir(exist_ok=True)
     print('\nRender:'); print('  Music     :',music.name); print('  Background:',bg.name); print('  Logo      :',logo.name); print('  Output    :',out.name)
-    render_video(theme,music,bg,logo,out,args.width,args.height,args.fps,args.crf,args.preset)
+    render_video(theme,music,bg,logo,out,args.width,args.height,args.fps,args.crf,args.preset,args.encoder,args.threads)
     print('SELESAI:',out)
+
+def choose_orientation(args):
+    print("\nPilih orientasi video:")
+    print("  [1] Horizontal / Landscape")
+    print("  [2] Vertical / Portrait")
+    while True:
+        n=input("Pilih orientasi: ").strip()
+        if n in ("1","2"):
+            args.orientation=n
+            return
+        print("Pilihan tidak valid.")
 
 def choose_quality(args):
     presets = [
@@ -49,8 +61,14 @@ def choose_quality(args):
         try:
             n = int(input("Pilih kualitas: ").strip())
             if 1 <= n <= len(presets):
-                name, args.width, args.height = presets[n-1]
-                print(f"Kualitas: {name} ({args.width}x{args.height})")
+                name, w, h = presets[n-1]
+                if getattr(args, "orientation", "1") == "2":
+                    args.width, args.height = h, w
+                    orient = "Vertical"
+                else:
+                    args.width, args.height = w, h
+                    orient = "Horizontal"
+                print(f"Kualitas: {name} | {orient} ({args.width}x{args.height})")
                 return
         except (ValueError, EOFError):
             pass
@@ -64,6 +82,7 @@ def interactive(args):
     print('\n[1] Manual\n[2] Otomatis / Berurutan')
     mode=input('\nPilih mode: ').strip()
     if mode not in ('1','2'): raise SystemExit('Pilihan tidak valid.')
+    choose_orientation(args)
     choose_quality(args)
     if mode=='1':
         m=choose('Pilih Music',music); b=bgs[0] if len(bgs)==1 else choose('Pilih BackGround',bgs); l=logos[0] if len(logos)==1 else choose('Pilih Logo',logos)
@@ -85,6 +104,11 @@ def main():
     ap.add_argument('--crf',type=int,default=18); ap.add_argument('--preset',default='medium',choices=['ultrafast','superfast','veryfast','faster','fast','medium','slow','slower','veryslow'])
     ap.add_argument('--reset-state',action='store_true',help='Reset urutan otomatis lalu keluar')
     args=ap.parse_args(); require_ffmpeg()
+    profile=detect_profile()
+    args.encoder=profile["encoder"]
+    args.threads=profile["cores"]
+    if args.preset=="medium": args.preset=profile["preset"]
+    print("\nAuto Performance:", describe(profile))
     if args.reset_state:
         p=ROOT/'.state.json'; p.unlink(missing_ok=True); print('State berhasil di-reset.'); return
     interactive(args)
