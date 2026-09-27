@@ -55,6 +55,16 @@ Menu:
     [1] Manual
     [2] Otomatis / Berurutan
 
+After selecting a mode, choose output quality:
+
+    [1] 480p              854x480
+    [2] 720p HD           1280x720
+    [3] 1080p Full HD     1920x1080
+    [4] 2K / 1440p QHD    2560x1440
+    [5] 4K / 2160p UHD    3840x2160
+
+All presets use a 16:9 output canvas. Higher resolutions require substantially more rendering time, RAM, storage, and encoding resources.
+
 Manual lets you select media yourself. If Background or Logo contains exactly one supported image, it is selected automatically.
 
 Automatic / Sequential renders music in natural filename order and advances Background and Logo sequentially. State advances only after a successful render.
